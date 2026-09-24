@@ -64,7 +64,8 @@ PUBLIC = os.environ.get("PUBLIC") == "1"
 # владельцем. Cookie DEMO_ROLE_COOKIE=admin переключает на вид администратора.
 # Управление доступом и паролями в демо отключено, чтобы никто не закрыл
 # стенд для остальных.
-DEMO = os.environ.get("DEMO") == "1"
+# Это репозиторий демо-стенда, поэтому режим включён по умолчанию; DEMO=0 — обычный вход.
+DEMO = os.environ.get("DEMO", "1") == "1"
 DEMO_ROLE_COOKIE = "plyaski_demo_role"
 
 
@@ -340,7 +341,9 @@ def main():
     if db.owner_password_is_default():
         print(f"\n  Первый вход: логин {db.DEFAULT_OWNER_LOGIN}, пароль {db.DEFAULT_OWNER_PASSWORD}")
         print("  Смените пароль в панели: «Справочники» → «Доступ».")
-    if exposed:
+    if DEMO:
+        print("\n  Демо-режим: вход без логина и пароля, сразу вид владельца.")
+    elif exposed:
         print("\n  Панель доступна не только с этого компьютера — вход только по логину и паролю.")
     print("\n  Чтобы закрыть панель — нажмите Ctrl+C в этом окне.\n")
     if not exposed:
