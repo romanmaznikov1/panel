@@ -108,6 +108,9 @@ function fmtDate(iso) {
   const p = isoParts(iso);
   return p ? `${pad2(p.d)}.${pad2(p.m)}.${p.y}` : "";
 }
+// За сколько дней до конца срока абонемент считается «на исходе» и пора звонить.
+const RENEW_WINDOW_DAYS = 3;
+
 function daysLeft(iso) {
   const p = isoParts(iso);
   if (!p) return null;
@@ -136,6 +139,8 @@ function termEndIso(startIso, type) {
 function termLabel(type) {
   if (!type) return "—";
   if (type.validity_months) return `${type.validity_months} ${plural(type.validity_months, "месяц", "месяца", "месяцев")}`;
+  // 45 дней — это «1,5 месяца», так и пишем.
+  if (type.validity_days && type.validity_days % 30 === 15) return `${String(type.validity_days / 30).replace(".", ",")} месяца`;
   if (type.validity_days) return `${type.validity_days} ${plural(type.validity_days, "день", "дня", "дней")}`;
   return "—";
 }
@@ -278,7 +283,7 @@ function attentionOf(student) {
       if (student.remaining <= 0) return { cls: "danger", text: "занятия закончились" };
       if (student.remaining === 1) return { cls: "warning", text: "последнее занятие" };
     }
-    if (days !== null && days <= 7) return { cls: "warning", text: `истекает ${short}` };
+    if (days !== null && days <= RENEW_WINDOW_DAYS) return { cls: "warning", text: `истекает ${short}` };
   }
   if ((student.activity === "Затих" || student.activity === "Пропал") && student.daysSinceVisit) {
     const n = student.daysSinceVisit;
@@ -768,7 +773,7 @@ function viewDashboard() {
       (student) =>
         student.status !== "Ушёл" &&
         hasRenewablePlan(student) &&
-        ((student.days !== null && student.days <= 14) || remainingDanger(student))
+        ((student.days !== null && student.days <= RENEW_WINDOW_DAYS) || remainingDanger(student))
     )
     .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
   const lastUntil = expiring.map((s) => s.until).filter(Boolean).sort().pop();
@@ -822,10 +827,10 @@ function viewDashboard() {
 
   // --- абонементы на исходе: кому звонить ---
   const expiringBadge = (s) => {
-    if (s.days !== null && s.days <= 14) {
+    if (s.days !== null && s.days <= RENEW_WINDOW_DAYS) {
       const short = fmtDate(s.until).slice(0, 5);
       if (s.days < 0) return badge("danger", `истёк ${short}`);
-      return badge(s.days <= 7 ? "warning" : "", `до ${short}`);
+      return badge("warning", `до ${short}`);
     }
     if (s.remaining !== null && s.remaining !== undefined && s.remaining <= 0) return badge("danger", "занятия закончились");
     return badge("warning", `${s.remaining} ${plural(s.remaining, "занятие", "занятия", "занятий")}`);
@@ -1029,7 +1034,7 @@ function untilCell(student) {
   let hint = "";
   if (student.status !== "Ушёл" && days !== null) {
     if (days < 0) hint = `<span class="cell-sub" style="color:var(--minus)">истёк</span>`;
-    else if (days <= 14) hint = `<span class="cell-sub" style="color:var(--warn)">через ${days} ${plural(days, "день", "дня", "дней")}</span>`;
+    else if (days <= RENEW_WINDOW_DAYS) hint = `<span class="cell-sub" style="color:var(--warn)">через ${days} ${plural(days, "день", "дня", "дней")}</span>`;
   }
   return `<span class="num">${esc(fmtDate(student.until))}</span>${hint}`;
 }
@@ -1077,7 +1082,7 @@ function viewStudents() {
   const untilCellNew = (student) => {
     if (!student.until) return `<span class="faint">—</span>`;
     const days = daysLeft(student.until);
-    const cls = student.status === "Ушёл" || days === null ? "" : days < 0 ? "date-over" : days <= 7 ? "date-soon" : "";
+    const cls = student.status === "Ушёл" || days === null ? "" : days < 0 ? "date-over" : days <= RENEW_WINDOW_DAYS ? "date-soon" : "";
     return `<span class="num ${cls}">${esc(fmtDate(student.until))}</span>`;
   };
   // «Осталось»: безлимит — словом, счётный — мини-прогресс и «X из N».
