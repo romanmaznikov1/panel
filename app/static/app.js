@@ -214,7 +214,8 @@ function initials(name) {
   if (!words.length) return "?";
   return (words[0][0] + (words[1] ? words[1][0] : "")).toUpperCase();
 }
-const avatar = (name, muted = false) => `<span class="avatar${muted ? " avatar--muted" : ""}" aria-hidden="true">${esc(initials(name))}</span>`;
+// Кружки с инициалами убраны: в списках только имена.
+const avatar = () => "";
 const chev = `<span class="chev" aria-hidden="true"></span>`;
 
 /* Строка списка — главный элемент на телефоне: слева аватар или значок,

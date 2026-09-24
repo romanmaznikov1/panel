@@ -1370,3 +1370,23 @@ td.col-sum-out { color: var(--danger); }
 
 /* Поля сумм в таблице финансов не сжимаются: иначе «15 500» обрезается до «15 5». */
 .table-wrap .fin-input { min-width: 104px; }
+
+/* Без аватаров: карточка «кто вошёл» — только текст. */
+.who { grid-template-columns: minmax(0, 1fr); }
+.who::before { display: none; }
+
+/* iPhone: поле даты не сжимается до ширины экрана и распирает карточку —
+   её можно сдвинуть пальцем вбок. Заставляем поле подчиняться ширине, а
+   карточки и страницу — не ездить по горизонтали. */
+input[type="date"], input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value { text-align: left; }
+.modal, .modal__body { overflow-x: hidden; }
+.modal__body { touch-action: pan-y; }
+.view { overflow-x: clip; }
