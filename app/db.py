@@ -1140,6 +1140,36 @@ def read_attendance_marks(date_str):
         conn.close()
 
 
+def read_student_visits(student_id):
+    """Все отметки одного ученика — для календаря посещений в его карточке."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT a.session_date, a.status, g.direction, g.is_individual, g.time,
+                      COALESCE(ac.name, gc.name) AS coach
+               FROM attendance a
+               JOIN class_groups g ON g.id = a.group_id
+               LEFT JOIN coaches ac ON ac.id = a.coach_id
+               LEFT JOIN coaches gc ON gc.id = g.coach_id
+               WHERE a.student_id = ?
+               ORDER BY a.session_date, g.time""",
+            (int(student_id),),
+        ).fetchall()
+        return [
+            {
+                "date": r["session_date"],
+                "status": r["status"],
+                "direction": r["direction"],
+                "individual": bool(r["is_individual"]),
+                "time": r["time"] or "",
+                "coach": r["coach"] or "",
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
 # --- запись --------------------------------------------------------------
 
 def _clean_text(value):

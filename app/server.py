@@ -243,6 +243,16 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:  # noqa: BLE001
                     self._json(500, {"error": str(exc)})
             return
+        if path == "/api/student_visits":
+            params = dict(pair.split("=", 1) for pair in query.split("&") if "=" in pair)
+            with LOCK:
+                try:
+                    self._json(200, {"visits": db.read_student_visits(int(params.get("id", "0")))})
+                except (ValueError, TypeError):
+                    self._json(400, {"error": "Некорректный ученик"})
+                except Exception as exc:  # noqa: BLE001
+                    self._json(500, {"error": str(exc)})
+            return
         name = "index.html" if path == "/" else path.lstrip("/")
         target = os.path.normpath(os.path.join(STATIC_DIR, name))
         if not target.startswith(STATIC_DIR) or not os.path.isfile(target):

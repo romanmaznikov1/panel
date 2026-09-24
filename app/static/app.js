@@ -2106,6 +2106,157 @@ function paymentGroupLabel(payment, student) {
   return studentDirectionLabel(student) || "—";
 }
 
+/* --- календарь посещений в карточке ученика ------------------------------
+
+   Месяц сеткой пн–вс. День окрашен по отметке: пришёл, не пришёл, разовое,
+   индивидуальное. Светлая подложка — срок текущего абонемента, точка —
+   день занятий по расписанию его групп, который ещё впереди. Нажатие на день
+   показывает, что это было за занятие. */
+
+const MONTHS_NOM = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+const VISIT_KINDS = {
+  present: "пришёл",
+  absent: "не пришёл",
+  dropin: "разовое",
+  individual: "индивидуальное",
+};
+const visitKind = (v) => (v.individual ? "individual" : v.status);
+// Если в один день было несколько занятий, цвет дня — по самой «весомой» отметке.
+const dayKind = (list) => ["individual", "present", "dropin", "absent"].find((k) => list.some((v) => visitKind(v) === k)) || "";
+
+async function mountVisitCalendar(box, studentId, student) {
+  if (!box) return;
+  const body = box.querySelector(".visit-cal__body");
+  let visits = [];
+  try {
+    const response = checkSession(await fetch(`/api/student_visits?id=${encodeURIComponent(studentId)}`));
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    visits = data.visits || [];
+  } catch (error) {
+    body.innerHTML = `<p class="visit-cal__note">Не удалось загрузить посещения</p>`;
+    return;
+  }
+
+  const byDate = new Map();
+  visits.forEach((v) => {
+    if (!byDate.has(v.date)) byDate.set(v.date, []);
+    byDate.get(v.date).push(v);
+  });
+  const today = isoToday();
+  const monthKey = (p) => p.y * 12 + (p.m - 1);
+
+  // Дни недели, по которым у ученика занятия: группы его направлений в его филиале.
+  const branchId = student._branch || student.branch_id;
+  const planned = new Set(
+    STATE.data.groups
+      .filter((g) => g.active && !g.is_individual && g.branch_id === branchId && studentHasDirection(student, g.direction))
+      .flatMap((g) => g.weekdays)
+  );
+
+  // Листать можно от первой отметки (или даты начала занятий) до конца абонемента.
+  const edges = [today, student.start, student.until, visits[0]?.date].map(isoParts).filter(Boolean).map(monthKey);
+  const minKey = Math.min(...edges);
+  const maxKey = Math.max(...edges);
+  // Открываем текущий месяц, а если в нём отметок нет — месяц последнего визита.
+  let key = monthKey(isoParts(today));
+  const thisMonth = `${isoParts(today).y}-${pad2(isoParts(today).m)}`;
+  if (visits.length && !visits.some((v) => v.date.startsWith(thisMonth))) key = monthKey(isoParts(visits[visits.length - 1].date));
+  let selected = null;
+
+  const draw = () => {
+    const y = Math.floor(key / 12);
+    const m = (key % 12) + 1;
+    const prefix = `${y}-${pad2(m)}`;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const lead = isoWeekday(`${prefix}-01`);
+    const counts = { present: 0, absent: 0, dropin: 0, individual: 0 };
+    visits.filter((v) => v.date.startsWith(prefix)).forEach((v) => (counts[visitKind(v)] += 1));
+
+    const cells = [];
+    for (let i = 0; i < lead; i += 1) cells.push(`<span class="visit-cal__day is-blank"></span>`);
+    for (let d = 1; d <= daysInMonth; d += 1) {
+      const iso = `${prefix}-${pad2(d)}`;
+      const list = byDate.get(iso) || [];
+      const kind = dayKind(list);
+      const inPlan = student.cycle_start && student.until && iso >= student.cycle_start && iso <= student.until;
+      const isPlanned = !list.length && iso >= today && inPlan && planned.has(isoWeekday(iso));
+      const cls = [
+        "visit-cal__day",
+        kind ? `is-${kind}` : "",
+        inPlan ? "in-plan" : "",
+        isPlanned ? "is-planned" : "",
+        iso === today ? "is-today" : "",
+        iso === selected ? "is-selected" : "",
+      ].filter(Boolean).join(" ");
+      const title = list.map((v) => `${v.direction} — ${VISIT_KINDS[visitKind(v)]}`).join("; ");
+      cells.push(
+        `<button type="button" class="${cls}" data-day="${iso}"${title ? ` title="${esc(title)}"` : ""}>${d}${
+          list.length > 1 ? `<small>${list.length}</small>` : ""
+        }</button>`
+      );
+    }
+
+    const selectedList = selected ? byDate.get(selected) || [] : [];
+    const selParts = selected ? isoParts(selected) : null;
+    const detail = selected
+      ? `<div class="visit-cal__detail"><b>${selParts.d} ${MONTHS_GEN[selParts.m - 1]}</b>${
+          selectedList.length
+            ? selectedList
+                .map(
+                  (v) => `<span><i class="visit-dot is-${visitKind(v)}"></i>${esc(v.direction)}${v.time ? `, ${esc(v.time)}` : ""} — ${
+                    VISIT_KINDS[visitKind(v)]
+                  }${v.coach ? ` <em>${esc(v.coach)}</em>` : ""}</span>`
+                )
+                .join("")
+            : `<span class="visit-cal__muted">${selected > today ? "занятие ещё впереди" : "отметок нет"}</span>`
+        }</div>`
+      : "";
+
+    const summary = [
+      counts.present ? `пришёл ${counts.present}` : "",
+      counts.absent ? `пропустил ${counts.absent}` : "",
+      counts.dropin ? `разово ${counts.dropin}` : "",
+      counts.individual ? `индивидуально ${counts.individual}` : "",
+    ].filter(Boolean);
+
+    body.innerHTML = `
+      <div class="visit-cal__head">
+        <button type="button" class="icon-btn" data-cal-step="-1" aria-label="Предыдущий месяц"${key <= minKey ? " disabled" : ""}>‹</button>
+        <b>${MONTHS_NOM[m - 1]} ${y}</b>
+        <button type="button" class="icon-btn" data-cal-step="1" aria-label="Следующий месяц"${key >= maxKey ? " disabled" : ""}>›</button>
+      </div>
+      <p class="visit-cal__summary">${summary.length ? esc(summary.join(" · ")) : "В этом месяце отметок нет"}</p>
+      <div class="visit-cal__grid">
+        ${WEEKDAY_SHORT.map((w) => `<span class="visit-cal__wd">${w}</span>`).join("")}
+        ${cells.join("")}
+      </div>
+      ${detail}
+      <div class="visit-cal__legend">
+        <span><i class="visit-dot is-present"></i>пришёл</span>
+        <span><i class="visit-dot is-absent"></i>не пришёл</span>
+        <span><i class="visit-dot is-dropin"></i>разовое</span>
+        <span><i class="visit-dot is-individual"></i>индивидуальное</span>
+        <span><i class="visit-dot in-plan"></i>срок абонемента</span>
+      </div>`;
+
+    body.querySelectorAll("[data-cal-step]").forEach((button) =>
+      button.addEventListener("click", () => {
+        key += Number(button.dataset.calStep);
+        selected = null;
+        draw();
+      })
+    );
+    body.querySelectorAll("[data-day]").forEach((button) =>
+      button.addEventListener("click", () => {
+        selected = selected === button.dataset.day ? null : button.dataset.day;
+        draw();
+      })
+    );
+  };
+  draw();
+}
+
 function openStudentModal(id) {
   const editing = id !== null && id !== undefined;
   const student = editing
@@ -2209,6 +2360,13 @@ function openStudentModal(id) {
             : ""
         }
         ${
+          editing
+            ? `<div class="field span-2 visit-cal" data-visit-cal><span>Календарь посещений</span>
+                <div class="visit-cal__body"><p class="visit-cal__note">Загружаю посещения…</p></div>
+              </div>`
+            : ""
+        }
+        ${
           editing && studentPayments(id).length
             ? `<div class="field span-2"><span>Платежи и абонементы</span>
                 <div class="pay-table">
@@ -2254,6 +2412,7 @@ function openStudentModal(id) {
     (form) => {
       form.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", closeModal));
       form.querySelector("[data-delete-student]")?.addEventListener("click", () => confirmDeleteStudent(id));
+      if (editing) mountVisitCalendar(form.querySelector("[data-visit-cal]"), id, student);
 
       form.querySelectorAll("[data-del-payment]").forEach((button) =>
         button.addEventListener("click", async () => {
