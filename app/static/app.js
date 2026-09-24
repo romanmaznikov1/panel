@@ -1883,7 +1883,10 @@ function viewAttendance() {
   }
 
   // Индивидуальные — в начале (их время — «весь день»), дальше по времени.
-  const sorted = [...shown].sort((a, b) => (a.is_individual ? -1 : b.is_individual ? 1 : (a.time || "99").localeCompare(b.time || "99")));
+  // Сначала групповые по времени, индивидуальные — в самом низу.
+  const sorted = [...shown].sort((a, b) =>
+    a.is_individual !== b.is_individual ? (a.is_individual ? 1 : -1) : (a.time || "99").localeCompare(b.time || "99")
+  );
   return `${toolbar}<div class="sessions">${sorted.map(attendanceSessionCard).join("")}</div>`;
 }
 

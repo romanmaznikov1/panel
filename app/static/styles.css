@@ -1280,6 +1280,9 @@ td.col-sum-out { color: var(--danger); }
   .stat { min-height: 132px; padding: 16px; gap: 8px; }
   .stat__num { font-size: 26px; line-height: 32px; }
   .stat--accent { grid-column: 1 / -1; }
+  /* Акцентная карточка заняла всю строку — после неё последняя «одинокая»
+     карточка тоже растягивается, чтобы справа не было пустого места. */
+  .g4 > .stat--accent:first-child ~ :last-child:nth-child(even) { grid-column: 1 / -1; }
   .summary { padding: 16px 0; }
   .summary__item { padding: 0 10px; }
   .summary__value { font-size: 15px; line-height: 22px; letter-spacing: -.03em; }
