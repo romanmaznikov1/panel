@@ -19,6 +19,8 @@ const STATE = {
   salaryYear: null,
   salaryMonth: null,
   salaries: null,
+  finMonth: null, // телефон: какой месяц открыт в «Финансах», "ГГГГ-ММ"
+  finOpen: new Set(), // телефон: у каких филиалов раскрыты статьи
 };
 
 const BRANCH_COLORS = ["var(--sever)", "#9d8cff", "#5fe0d4", "var(--warn)"];
@@ -1199,47 +1201,6 @@ function financeCard(branch) {
     }</td>`
   ).join("");
 
-  // Телефон: месяц — карточка. Статьи строками, ручные — полем справа,
-  // посчитанные сами — просто суммой с пометкой «авто». Итог месяца внизу.
-  const finRow = (month, index, field) => {
-    const stored = month[field.key];
-    const value = field.auto
-      ? `<span class="fin-auto num">${stored ? esc(money(stored)) : "—"}</span>`
-      : `<input class="fin-input num" type="text" inputmode="numeric" placeholder="—"
-               value="${stored === null || stored === undefined ? "" : nf.format(stored)}"
-               data-branch="${esc(branch.id)}" data-id="${month.id}" data-index="${index}" data-field="${field.key}" aria-label="${esc(field.label)}, ${esc(month.label)}">`;
-    return `<div class="fin-row fin-row--${field.group}">
-      <span class="fin-row__label">${field.auto ? `<small>авто</small>` : ""}${esc(field.label)}</span>
-      ${value}
-    </div>`;
-  };
-  const months = [...branch.months.map((month, index) => ({ month, index }))].reverse(); // свежий месяц сверху
-  const mobile = months
-    .map(({ month, index }) => {
-      const income = monthIncome(month);
-      const expense = monthExpense(month);
-      const profit = income - expense;
-      const deletable = !FINANCE_FIELDS.some((field) => field.auto && month[field.key]);
-      return `<div class="month-card${index === currentIndex ? " is-current" : ""}">
-        <div class="month-card__head">
-          <h3>${esc(month.label)}</h3>
-          ${deletable ? `<button class="icon-btn icon-btn--danger" type="button" data-delete-month="${index}" aria-label="Удалить месяц">✕</button>` : ""}
-        </div>
-        <p class="month-card__group month-card__group--in">Доходы</p>
-        ${FINANCE_FIELDS.filter((f) => f.group === "in").map((f) => finRow(month, index, f)).join("")}
-        <p class="month-card__group month-card__group--out">Расходы</p>
-        ${FINANCE_FIELDS.filter((f) => f.group === "out").map((f) => finRow(month, index, f)).join("")}
-        <div class="month-card__foot">
-          <div class="summary__item"><span class="summary__label">Доход</span><span class="summary__value num" data-derived="income" data-index="${index}">${income ? money(income) : "—"}</span></div>
-          <div class="summary__item"><span class="summary__label">Расход</span><span class="summary__value num" data-derived="expense" data-index="${index}">${expense ? money(expense) : "—"}</span></div>
-          <div class="summary__item"><span class="summary__label">Прибыль</span><span class="summary__value num" data-derived="profit" data-index="${index}" style="color:${
-            profit < 0 ? "var(--minus)" : profit > 0 ? "var(--plus)" : "inherit"
-          }">${income || expense ? money(profit) : "—"}</span></div>
-        </div>
-      </div>`;
-    })
-    .join("");
-
   return `<section class="card" data-finance="${esc(branch.id)}">
     <div class="card__head">
       <div>
@@ -1252,10 +1213,7 @@ function financeCard(branch) {
         <button class="btn btn--outline btn--sm" data-add-month="${esc(branch.id)}" type="button">${ICON.plus}Месяц</button>
       </span>
     </div>
-    <div class="only-mobile">${
-      mobile || `<div class="empty empty--compact"><b>Месяцев пока нет</b>Появятся сами с первой оплатой или добавьте кнопкой выше.</div>`
-    }</div>
-    <div class="table-wrap only-desktop"><table>
+    <div class="table-wrap"><table>
       <thead><tr>
         <th>Месяц</th>
         ${FINANCE_FIELDS.map(
@@ -1293,7 +1251,118 @@ function viewFinance() {
     { label: "Расход", value: moneyHtml(totals.expense), cls: totals.expense ? "is-minus" : "" },
     { label: "Прибыль", value: moneyHtml(totals.profit), cls: totals.profit < 0 ? "is-minus" : "is-brand" },
   ]);
-  return summary + hint + branches.map(financeCard).join("");
+  return `<div class="only-desktop fin-d">${summary + hint + branches.map(financeCard).join("")}</div>` + financeMobile(branches, hint);
+}
+
+/* Телефон: один месяц на экране. Сверху — переключатель месяца и итог,
+   ниже по строке на филиал (нажал — раскрылись статьи, ручные можно
+   править), в конце — короткая история по месяцам. Широкая таблица
+   «месяцы × статьи» на телефоне не читается, поэтому здесь её нет. */
+const finKey = (m) => `${m.year}-${pad2(m.month)}`;
+
+function financeMobile(branches, hint) {
+  // Все месяцы, где есть хоть один филиал из выбранных, — свежие сверху.
+  const keys = [...new Set(branches.flatMap((b) => b.months.map(finKey)))].sort().reverse();
+  if (!keys.length) {
+    return `<div class="only-mobile fin-m"><section class="card"><div class="empty empty--compact"><b>Месяцев пока нет</b>Появятся сами с первой оплатой.</div></section></div>`;
+  }
+  const now = isoToday().slice(0, 7);
+  if (!keys.includes(STATE.finMonth)) STATE.finMonth = keys.find((k) => k <= now) || keys[0];
+  const key = STATE.finMonth;
+  const pos = keys.indexOf(key);
+  const [y, m] = key.split("-").map(Number);
+
+  const monthOf = (branch) => {
+    const index = branch.months.findIndex((mm) => finKey(mm) === key);
+    return index < 0 ? null : { month: branch.months[index], index };
+  };
+  const sumFor = (k) =>
+    branches.reduce(
+      (acc, b) => {
+        const mm = b.months.find((x) => finKey(x) === k);
+        if (mm) {
+          acc.income += monthIncome(mm);
+          acc.expense += monthExpense(mm);
+        }
+        return acc;
+      },
+      { income: 0, expense: 0 }
+    );
+  const total = sumFor(key);
+  const profit = total.income - total.expense;
+  const profitColor = (v) => (v < 0 ? "var(--minus)" : v > 0 ? "var(--plus)" : "inherit");
+
+  const top = `<section class="card fin-m__top">
+    <div class="fin-m__nav">
+      <button type="button" class="icon-btn" data-fin-step="1" aria-label="Предыдущий месяц"${pos >= keys.length - 1 ? " disabled" : ""}>‹</button>
+      <b>${MONTHS_NOM[m - 1]} ${y}</b>
+      <button type="button" class="icon-btn" data-fin-step="-1" aria-label="Следующий месяц"${pos <= 0 ? " disabled" : ""}>›</button>
+    </div>
+    <div class="fin-m__sum">
+      <div><span>Доход</span><b class="is-plus">${money(total.income)}</b></div>
+      <div><span>Расход</span><b class="is-minus">${money(total.expense)}</b></div>
+      <div><span>Прибыль</span><b style="color:${profitColor(profit)}">${money(profit)}</b></div>
+    </div>
+  </section>`;
+
+  const row = (branch, month, index, field) => {
+    const stored = month[field.key];
+    const value = field.auto
+      ? `<span class="fin-m__auto num">${stored ? esc(money(stored)) : "—"}</span>`
+      : `<input class="fin-input num" type="text" inputmode="numeric" placeholder="—"
+               value="${stored === null || stored === undefined ? "" : nf.format(stored)}"
+               data-branch="${esc(branch.id)}" data-id="${month.id}" data-index="${index}" data-field="${field.key}" aria-label="${esc(field.label)}, ${esc(month.label)}">`;
+    return `<div class="fin-m__row fin-m__row--${field.group}">
+      <span>${esc(field.label)}${field.auto ? ` <small>авто</small>` : ""}</span>${value}
+    </div>`;
+  };
+  const single = branches.length === 1;
+  const branchCards = branches
+    .map((branch) => {
+      const found = monthOf(branch);
+      if (!found) {
+        return `<section class="card fin-m__branch is-empty"><div class="fin-m__head">
+          <span class="branch-tag"><i style="background:${branchColor(branch.id)}"></i>${esc(branch.name)}</span>
+          <span class="fin-m__muted">нет данных</span></div></section>`;
+      }
+      const { month, index } = found;
+      const bp = monthIncome(month) - monthExpense(month);
+      const open = single || STATE.finOpen.has(branch.id);
+      const deletable = !FINANCE_FIELDS.some((field) => field.auto && month[field.key]);
+      return `<details class="card fin-m__branch" data-finance="${esc(branch.id)}" data-fin-branch="${esc(branch.id)}"${open ? " open" : ""}>
+        <summary class="fin-m__head">
+          <span class="branch-tag"><i style="background:${branchColor(branch.id)}"></i>${esc(branch.name)}</span>
+          <span class="fin-m__profit" style="color:${profitColor(bp)}">${money(bp)}</span>
+        </summary>
+        <div class="fin-m__body">
+          <p class="fin-m__group fin-m__group--in">Доходы · ${money(monthIncome(month))}</p>
+          ${FINANCE_FIELDS.filter((f) => f.group === "in").map((f) => row(branch, month, index, f)).join("")}
+          <p class="fin-m__group fin-m__group--out">Расходы · ${money(monthExpense(month))}</p>
+          ${FINANCE_FIELDS.filter((f) => f.group === "out").map((f) => row(branch, month, index, f)).join("")}
+          ${deletable ? `<button class="link-btn fin-m__delete" type="button" data-delete-month="${index}">Удалить месяц</button>` : ""}
+        </div>
+      </details>`;
+    })
+    .join("");
+
+  const history = `<section class="card fin-m__history">
+    <div class="card__head"><div><h2>По месяцам</h2></div></div>
+    <div class="fin-m__hrow fin-m__hrow--head"><span>Месяц</span><span>Доход</span><span>Прибыль</span></div>
+    ${keys
+      .map((k) => {
+        const t = sumFor(k);
+        const p = t.income - t.expense;
+        const [hy, hm] = k.split("-").map(Number);
+        return `<button type="button" class="fin-m__hrow${k === key ? " is-active" : ""}" data-fin-month="${k}">
+          <span>${MONTHS_NOM[hm - 1]} <small>${hy}</small></span>
+          <span class="num">${moneyShort(t.income)}</span>
+          <span class="num" style="color:${profitColor(p)}">${moneyShort(p)}</span>
+        </button>`;
+      })
+      .join("")}
+  </section>`;
+
+  return `<div class="only-mobile fin-m">${top}${branchCards}${history}${hint}</div>`;
 }
 
 function refreshFinanceDerived(branchId) {
@@ -3433,6 +3502,22 @@ viewRoot.addEventListener("click", (event) => {
     return;
   }
 
+  const finStep = event.target.closest("[data-fin-step]");
+  if (finStep) {
+    const keys = [...new Set(branchesInScope().flatMap((b) => b.months.map(finKey)))].sort().reverse();
+    const next = keys[keys.indexOf(STATE.finMonth) + Number(finStep.dataset.finStep)];
+    if (next) STATE.finMonth = next;
+    render();
+    return;
+  }
+  const finMonth = event.target.closest("[data-fin-month]");
+  if (finMonth) {
+    STATE.finMonth = finMonth.dataset.finMonth;
+    render();
+    scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+
   const addMonth = event.target.closest("[data-add-month]");
   if (addMonth) {
     act("finance.add_month", { branch: addMonth.dataset.addMonth }, "Месяц добавлен").then((ok) => ok && render());
@@ -3670,13 +3755,29 @@ viewRoot.addEventListener("change", async (event) => {
     month[field] = value;
     target.value = value === null ? "" : nf.format(value);
     refreshFinanceDerived(branch);
+    const onPhone = Boolean(target.closest(".fin-m"));
     const ok = await act("finance.update", { branch, id: +id, field, value });
-    if (ok) {
+    if (ok && onPhone) {
+      render(); // итоги месяца, филиала и история пересчитаются
+    } else if (ok) {
       target.classList.add("is-saved");
       setTimeout(() => target.classList.remove("is-saved"), 800);
     }
   }
 });
+
+// Телефон, «Финансы»: помним, какие филиалы раскрыты, — после сохранения
+// суммы раздел перерисовывается, и раскрытое не должно схлопнуться.
+viewRoot.addEventListener(
+  "toggle",
+  (event) => {
+    const box = event.target.closest && event.target.closest("[data-fin-branch]");
+    if (!box || box !== event.target) return;
+    if (box.open) STATE.finOpen.add(box.dataset.finBranch);
+    else STATE.finOpen.delete(box.dataset.finBranch);
+  },
+  true
+);
 
 viewRoot.addEventListener("keydown", (event) => {
   if (event.target.classList.contains("fin-input") && event.key === "Enter") {
