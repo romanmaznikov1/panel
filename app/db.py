@@ -469,6 +469,18 @@ def get_user(user_id):
         conn.close()
 
 
+def first_user(role):
+    """Первый активный пользователь с этой ролью — для демо-стенда без входа."""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE role=? AND active=1 ORDER BY id LIMIT 1", (role,)
+        ).fetchone()
+        return _user_json(row) if row else None
+    finally:
+        conn.close()
+
+
 def list_users(conn):
     return [_user_json(r) for r in conn.execute("SELECT * FROM users ORDER BY role, login COLLATE NOCASE")]
 

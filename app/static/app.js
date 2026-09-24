@@ -3019,8 +3019,21 @@ function labelTableCells(root) {
   });
 }
 
+// Демо-стенд: входа нет, вместо «Выйти» — переключение владелец ↔ администратор.
+let DEMO = false;
+function switchDemoRole() {
+  const next = isOwner() ? "admin" : "owner";
+  document.cookie = `plyaski_demo_role=${next}; path=/; max-age=31536000; SameSite=Lax`;
+  location.reload();
+}
+const demoSwitchLabel = () => (isOwner() ? "Вид администратора" : "Вид владельца");
+
 function renderWho() {
   const user = currentUser();
+  if (DEMO) {
+    document.getElementById("passwordBtn").hidden = true;
+    document.getElementById("logoutBtn").textContent = demoSwitchLabel();
+  }
   const who = document.getElementById("who");
   who.hidden = !user.login;
   document.getElementById("whoName").textContent = user.name || user.login || "";
@@ -3124,6 +3137,7 @@ const MENU_ICONS = {
   subscriptions: `<svg viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5"/><path d="M5 19.5v-15M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/><path d="M9 7.5h6M9 11h6"/></svg>`,
   password: `<svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>`,
   export: `<svg viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/><path d="M4.5 16v2.5A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 2-2V16"/></svg>`,
+  users: `<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M2.8 20c0-3.4 2.8-6 6.2-6s6.2 2.6 6.2 6"/><circle cx="17" cy="8.5" r="2.4"/><path d="M15.5 14.2c2.9.3 5 2.7 5 5.8"/></svg>`,
   logout: `<svg viewBox="0 0 24 24"><path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4M6 12h9.5"/></svg>`,
 };
 
@@ -3152,9 +3166,11 @@ function openMoreSheet() {
     )} · ${esc(user.login || "")}</span></span></div>
         </div>
         <div class="menu-group">
-          ${item("password", "Сменить пароль", "data-menu-action=\"password\"")}
+          ${DEMO ? "" : item("password", "Сменить пароль", "data-menu-action=\"password\"")}
           ${isOwner() ? item("export", "Экспорт в Excel", "data-menu-action=\"export\"") : ""}
-          ${item("logout", "Выйти", "data-menu-action=\"logout\"", " menu-item--danger")}
+          ${DEMO
+            ? item("users", demoSwitchLabel(), "data-menu-action=\"logout\"")
+            : item("logout", "Выйти", "data-menu-action=\"logout\"", " menu-item--danger")}
         </div>
         <p class="menu-note">${esc(`База обновлена ${STATE.data.updated}`)}</p>
       </div>
@@ -3553,6 +3569,7 @@ document.getElementById("loginForm").addEventListener("submit", async (event) =>
 });
 
 document.getElementById("logoutBtn").addEventListener("click", async () => {
+  if (DEMO) return switchDemoRole();
   await fetch("/api/logout", { method: "POST" }).catch(() => {});
   location.reload();
 });
@@ -3566,7 +3583,11 @@ STATE.salaryMonth = new Date().getMonth() + 1;
 if (VIEWS[location.hash.slice(1)]) STATE.view = location.hash.slice(1);
 
 fetch("/api/me")
-  .then((response) => (response.ok ? startApp() : showGate()))
+  .then(async (response) => {
+    if (!response.ok) return showGate();
+    DEMO = Boolean((await response.json()).demo);
+    return startApp();
+  })
   .catch((error) => {
     if (!gate.hidden) return; // сессия закончилась — уже показан экран входа
     document.getElementById("view").innerHTML = `<div class="card"><div class="empty"><b>Не удалось открыть базу</b>${esc(error.message)}</div></div>`;

@@ -60,6 +60,13 @@ ATTEMPTS = {}  # (логин, адрес) -> (сколько промахов, �
 # только-по-HTTPS и запрещает работу с паролем по умолчанию.
 PUBLIC = os.environ.get("PUBLIC") == "1"
 
+# Демо-стенд: DEMO=1. Панель открывается без логина и пароля — сразу под
+# владельцем. Cookie DEMO_ROLE_COOKIE=admin переключает на вид администратора.
+# Управление доступом и паролями в демо отключено, чтобы никто не закрыл
+# стенд для остальных.
+DEMO = os.environ.get("DEMO") == "1"
+DEMO_ROLE_COOKIE = "plyaski_demo_role"
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "PlyaskiOps"
@@ -95,7 +102,19 @@ class Handler(BaseHTTPRequestHandler):
         """Кто прислал запрос. Права читаются из базы каждый раз — если доступ
         отключили или сменили роль, это действует сразу."""
         with LOCK:
-            return db.session_user(self._token(), SESSION_TTL)
+            user = db.session_user(self._token(), SESSION_TTL)
+            if not user and DEMO:
+                role = "admin" if self._demo_role() == "admin" else "owner"
+                user = db.first_user(role)
+            return user
+
+    def _demo_role(self):
+        jar = http.cookies.SimpleCookie()
+        try:
+            jar.load(self.headers.get("Cookie") or "")
+        except http.cookies.CookieError:
+            return None
+        return jar[DEMO_ROLE_COOKIE].value if DEMO_ROLE_COOKIE in jar else None
 
     def _over_https(self):
         return PUBLIC or self.headers.get("X-Forwarded-Proto") == "https"
@@ -168,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(401, {"error": "Нужно войти в панель"})
             return
         if path == "/api/me":
-            self._json(200, {"user": user})
+            self._json(200, {"user": user, "demo": DEMO})
             return
         if path == "/api/state":
             with LOCK:
@@ -253,6 +272,9 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._body()
         if payload is None:
             self._json(400, {"error": "Некорректный запрос"})
+            return
+        if DEMO and str(payload.get("action") or "").startswith(("user.", "account.")):
+            self._json(403, {"error": "В демо пароли и доступы не меняются"})
             return
         with LOCK:
             try:

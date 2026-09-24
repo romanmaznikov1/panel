@@ -20,4 +20,5 @@ print(int((t - n).total_seconds()))')"
 
 export HOST=0.0.0.0
 export PUBLIC=1
+export DEMO=1   # без логина и пароля: сразу вид владельца
 exec python3 app/server.py
