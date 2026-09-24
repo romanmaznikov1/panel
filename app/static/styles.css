@@ -643,6 +643,7 @@ input[type="checkbox"][name="is_individual"]:checked::after { transform: transla
 .seg button:hover, .segmented button:hover { color: var(--text); }
 .seg button.is-active, .segmented button.is-active { background: var(--inverse-bg); color: var(--inverse-text); }
 .segmented__thumb { display: none; }
+.branch-select { display: none; }
 
 /* Фильтр-селект — пилюля с шевроном. */
 .chip-select { width: auto; max-width: 240px; }
@@ -1226,7 +1227,19 @@ td.col-sum-out { color: var(--danger); }
   .topbar { align-items: center; flex-wrap: nowrap; gap: 12px; padding: calc(env(safe-area-inset-top) + 12px) var(--page-x) 12px; }
   .topbar__title h1 { font-size: 26px; line-height: 32px; transform-origin: left center; transform: scale(calc(1 - .22 * var(--nav-p))); }
   .topbar__title .eyebrow { font-size: 13px; line-height: 18px; opacity: calc(1 - var(--nav-p)); }
-  .topbar__tools .segmented { display: none; }
+  /* Филиалы на телефоне — выпадающим списком отдельной строкой под заголовком. */
+  .topbar { flex-wrap: wrap; row-gap: 10px; }
+  .topbar > .topbar__tools { display: contents; }
+  .topbar__tools .segmented:not([hidden]) {
+    order: 10;
+    flex: 0 0 100%;
+    display: block;
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+  .topbar__tools .segmented button { display: none; }
+  .topbar__tools .segmented .branch-select { display: block; width: 100%; font-weight: 500; }
   .topbar__add { width: 44px; height: 44px; padding: 0; }
   .topbar__add-label { display: none; }
 

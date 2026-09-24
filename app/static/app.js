@@ -2994,7 +2994,11 @@ function renderBranchFilter() {
   const buttons = [{ id: "all", name: "Все филиалы" }].concat(STATE.data.branches);
   document.getElementById("branchFilter").innerHTML = buttons
     .map((branch) => `<button type="button" data-branch="${esc(branch.id)}"${STATE.branch === branch.id ? ' class="is-active"' : ""}>${esc(branch.name)}</button>`)
-    .join("");
+    .join("") +
+    // На телефоне вместо кнопок — выпадающий список: три филиала в строку не влезают.
+    `<select class="branch-select" aria-label="Филиал">${buttons
+      .map((branch) => `<option value="${esc(branch.id)}"${STATE.branch === branch.id ? " selected" : ""}>${esc(branch.name)}</option>`)
+      .join("")}</select>`;
 }
 
 /* На узком экране таблица разворачивается в карточки: каждая ячейка получает
@@ -3215,6 +3219,11 @@ document.getElementById("branchFilter").addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   STATE.branch = button.dataset.branch;
+  render();
+});
+document.getElementById("branchFilter").addEventListener("change", (event) => {
+  if (!event.target.matches(".branch-select")) return;
+  STATE.branch = event.target.value;
   render();
 });
 
